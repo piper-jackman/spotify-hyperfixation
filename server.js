@@ -52,6 +52,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Serve manifest.json
+    if (pathname === '/manifest.json') {
+      const manifestPath = path.join(__dirname, 'manifest.json');
+      const manifest = fs.readFileSync(manifestPath, 'utf8');
+      
+      res.writeHead(200, { 'Content-Type': 'application/manifest+json' });
+      res.end(manifest);
+      return;
+    }
+
     // Login endpoint - redirect to Spotify
     if (pathname === '/login') {
       console.log('Login request - redirecting to Spotify...');
@@ -104,7 +114,7 @@ const server = http.createServer(async (req, res) => {
         console.log('✅ Token received:', token.substring(0, 20) + '...');
         
         // Redirect back to app with token
-        const redirectUrl = `/#access_token=${token}&token_type=Bearer`;
+        const redirectUrl = `/?access_token=${token}&token_type=Bearer`;
         console.log('Redirecting to:', redirectUrl);
         res.writeHead(302, {
           'Location': redirectUrl
