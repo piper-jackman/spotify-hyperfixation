@@ -6,17 +6,17 @@ const fs = require('fs');
 const path = require('path');
 
 // ============================================================================
-// CONFIGURATION - UPDATE THESE!
+// CONFIGURATION - Use environment variables
 // ============================================================================
-const CLIENT_ID = '71eece51cc7749cc8e30a00382606ed7';
-const CLIENT_SECRET = '2d60666611dd4e93848566be6afbd942';
-const REDIRECT_URI = 'https://asks-layers-oval-shadow.trycloudflare.com/callback';
+const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || '71eece51cc7749cc8e30a00382606ed7';
+const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || '2d60666611dd4e93848566be6afbd942';
+const REDIRECT_URI = process.env.REDIRECT_URI || 'https://asks-layers-oval-shadow.trycloudflare.com/callback';
 
 // ============================================================================
 // SERVER
 // ============================================================================
 
-const PORT = 8000;
+const PORT = process.env.PORT || 8000;
 
 const server = http.createServer(async (req, res) => {
   console.log(`\n[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
@@ -104,7 +104,7 @@ const server = http.createServer(async (req, res) => {
         console.log('✅ Token received:', token.substring(0, 20) + '...');
         
         // Redirect back to app with token
-        const redirectUrl = `/#access_token=${token}&token_type=Bearer`;
+        const redirectUrl = `/?access_token=${token}&token_type=Bearer`;
         console.log('Redirecting to:', redirectUrl);
         res.writeHead(302, {
           'Location': redirectUrl
