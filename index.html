@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotify Hyperfixation Mode</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide-react@latest"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: "Outfit", -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background: #0f0f0f;
+      color: white;
+    }
+    
+    #root {
+      min-height: 100vh;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1a1a1a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #667eea;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #764ba2;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateY(-20px);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: rotate(-10deg) scale(1); }
+      50% { transform: rotate(-10deg) scale(1.05); }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const React = window.React;
+    const { useState, useEffect, useRef } = React;
+    const ReactDOM = window.ReactDOM;
+    const lucideReact = window.lucideReact;
+    
+    // Fallback icon components
+    const Play = lucideReact?.Play || (() => <span>▶</span>);
+    const Music = lucideReact?.Music || (() => <span>🎵</span>);
+    const Zap = lucideReact?.Zap || (() => <span>⚡</span>);
+    const Plus = lucideReact?.Plus || (() => <span>+</span>);
+    const Trash2 = lucideReact?.Trash2 || (() => <span>🗑</span>);
+    const Power = lucideReact?.Power || (() => <span>⚡</span>);
+
+    class SpotifyService {
+      constructor(token) {
+        this.token = token;
+      }
+
+      async makeRequest(endpoint, options = {}) {
+        const token = localStorage.getItem('spotify_token');
+        if (!token) throw new Error('No access token available');
+
+        console.log('Making request to:', endpoint);
+
+        const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
+          ...options,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            ...options.headers
+          }
+        });
+
+        console.log('Response status:', response.status);
+
+        if (response.status === 401) {
+          localStorage.removeItem('spotify_token');
+          throw new Error('Token expired');
+        }
+
+        // Handle empty responses (204 No Content or 200 with empty body)
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          console.log('Empty response body - returning null');
+          return null;
+        }
+
+        if (!response.ok) {
+          const text = await response.text();
+          console.error('Error response body:', text);
+          try {
+            const error = JSON.parse(text);
+            throw new Error(error.error?.message || 'Spotify API error');
+          } catch (e) {
+            throw new Error('Spotify API error: ' + text);
+          }
+        }
+
+        try {
+          const data = await response.json();
+          console.log('Response received successfully');
+          return data;
+        } catch (e) {
+          console.log('Failed to parse JSON, assuming empty body:', e.message);
+          return null;
+        }
+      }
+
+      async getCurrentlyPlaying() {
+        return this.makeRequest('/me/player/currently-playing');
+      }
+
+      async addToQueue(trackUri) {
+        return this.makeRequest(`/me/player/queue?uri=${encodeURIComponent(trackUri)}`, {
+          method: 'POST'
+        });
+      }
+
+      async searchTracks(query) {
+        const params = new URLSearchParams({
+          q: query,
+          type: 'track',
+          limit: 10
+        });
+        return this.makeRequest(`/search?${params.toString()}`);
+      }
+    }
+
+    class HyperfixationPlaylist {
+      constructor(tracks = []) {
+        this.tracks = tracks;
+        this.currentIndex = 0;
+      }
+
+      addTrack(track) {
+        if (!this.hasTrack(track.id)) {
+          this.tracks.push(track);
+          this.save();
+        }
+      }
+
+      removeTrack(trackId) {
+        this.tracks = this.tracks.filter(t => t.id !== trackId);
+        if (this.currentIndex >= this.tracks.length) {
+          this.currentIndex = 0;
+        }
+        this.save();
+      }
+
+      hasTrack(trackId) {
+        return this.tracks.some(t => t.id === trackId);
+      }
+
+      getNextTrack() {
+        if (this.tracks.length === 0) return null;
+        const track = this.tracks[this.currentIndex];
+        this.currentIndex = (this.currentIndex + 1) % this.tracks.length;
+        this.save();
+        return track;
+      }
+
+      getTracks() {
+        return [...this.tracks];
+      }
+
+      isEmpty() {
+        return this.tracks.length === 0;
+      }
+
+      save() {
+        localStorage.setItem('hyperfixation_playlist', JSON.stringify({
+          tracks: this.tracks,
+          currentIndex: this.currentIndex
+        }));
+      }
+
+      static load() {
+        const data = localStorage.getItem('hyperfixation_playlist');
+        if (data) {
+          const parsed = JSON.parse(data);
+          const playlist = new HyperfixationPlaylist(parsed.tracks || []);
+          playlist.currentIndex = parsed.currentIndex || 0;
+          return playlist;
+        }
+        return new HyperfixationPlaylist();
+      }
+    }
+
+    class HyperfixationMonitor {
+      constructor(spotifyService, playlist) {
+        this.spotifyService = spotifyService;
+        this.playlist = playlist;
+        this.isActive = false;
+        this.lastTrackId = null;
+        this.pollInterval = null;
+        this.checkInterval = 3000;
+        this.currentTrackIdWeQueuedFor = null;
+      }
+
+      start(onStatusChange) {
+        if (this.isActive) return;
+        
+        this.isActive = true;
+        this.onStatusChange = onStatusChange;
+        this.poll();
+        this.pollInterval = setInterval(() => this.poll(), this.checkInterval);
+        
+        if (onStatusChange) {
+          onStatusChange({ active: true, message: 'Hyperfixation mode activated' });
+        }
+      }
+
+      stop(onStatusChange) {
+        if (!this.isActive) return;
+        
+        this.isActive = false;
+        this.lastTrackId = null;
+        this.currentTrackIdWeQueuedFor = null;
+        
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+        }
+        
+        if (onStatusChange) {
+          onStatusChange({ active: false, message: 'Hyperfixation mode deactivated' });
+        }
+      }
+
+      async poll() {
+        if (!this.isActive) return;
+
+        try {
+          const currentlyPlaying = await this.spotifyService.getCurrentlyPlaying();
+          
+          if (!currentlyPlaying || !currentlyPlaying.item || !currentlyPlaying.is_playing) {
+            return;
+          }
+
+          const currentTrack = currentlyPlaying.item;
+          const currentTrackId = currentTrack.id;
+
+          if (currentTrackId !== this.lastTrackId) {
+            await this.handleTrackChange(currentTrack);
+            this.lastTrackId = currentTrackId;
+          }
+        } catch (error) {
+          console.error('Monitor error:', error);
+        }
+      }
+
+      async handleTrackChange(currentTrack) {
+        console.log('=== TRACK CHANGE ===');
+        console.log('Current track:', currentTrack.name, 'ID:', currentTrack.id);
+        console.log('Last queued for:', this.currentTrackIdWeQueuedFor);
+        
+        const isHyperfixationTrack = this.playlist.hasTrack(currentTrack.id);
+        console.log('Is hyperfixation track:', isHyperfixationTrack);
+
+        // Check 1: Is this the same regular track we already queued for?
+        if (this.currentTrackIdWeQueuedFor === currentTrack.id) {
+          console.log('✓ Check 1 passed: Already queued for this track - SKIP');
+          if (this.onStatusChange) {
+            this.onStatusChange({
+              active: true,
+              message: `Playing: ${currentTrack.name}`,
+              currentTrack
+            });
+          }
+          return;
+        }
+
+        // Check 2: Is this a hyperfixation track?
+        if (isHyperfixationTrack) {
+          console.log('✓ Check 2 passed: This is a hyperfixation track - SKIP');
+          if (this.onStatusChange) {
+            this.onStatusChange({
+              active: true,
+              message: `Playing hyperfixation: ${currentTrack.name}`,
+              currentTrack
+            });
+          }
+          return;
+        }
+
+        // Check 3: Queue a hyperfixation song for this regular track
+        console.log('✗ All checks failed - QUEUE a hyperfixation song');
+        const nextHyperfixation = this.playlist.getNextTrack();
+        
+        if (nextHyperfixation) {
+          console.log('Queueing:', nextHyperfixation.name);
+          await this.spotifyService.addToQueue(nextHyperfixation.uri);
+          this.currentTrackIdWeQueuedFor = currentTrack.id; // Remember we queued for this track
+          console.log('Set currentTrackIdWeQueuedFor to:', currentTrack.id);
+          
+          if (this.onStatusChange) {
+            this.onStatusChange({
+              active: true,
+              message: `Queued: ${nextHyperfixation.name}`,
+              currentTrack,
+              queuedTrack: nextHyperfixation
+            });
+          }
+        }
+      }
+    }
+
+    function SpotifyHyperfixationApp() {
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
+      const [playlist, setPlaylist] = useState(null);
+      const [monitor, setMonitor] = useState(null);
+      const [isMonitorActive, setIsMonitorActive] = useState(false);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [searchResults, setSearchResults] = useState([]);
+      const [isSearching, setIsSearching] = useState(false);
+      const [statusMessage, setStatusMessage] = useState('');
+      const [currentTrack, setCurrentTrack] = useState(null);
+      const [queuedTrack, setQueuedTrack] = useState(null);
+      
+      const spotifyServiceRef = useRef(null);
+
+      useEffect(() => {
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const token = params.get('access_token');
+        
+        if (token) {
+          localStorage.setItem('spotify_token', token);
+          window.location.hash = '';
+          setIsAuthenticated(true);
+          initializeApp(token);
+        } else {
+          const storedToken = localStorage.getItem('spotify_token');
+          if (storedToken) {
+            setIsAuthenticated(true);
+            initializeApp(storedToken);
+          }
+        }
+      }, []);
+
+      const initializeApp = (token) => {
+        spotifyServiceRef.current = new SpotifyService(token);
+        
+        const loadedPlaylist = HyperfixationPlaylist.load();
+        setPlaylist(loadedPlaylist);
+        
+        const newMonitor = new HyperfixationMonitor(
+          spotifyServiceRef.current,
+          loadedPlaylist
+        );
+        setMonitor(newMonitor);
+      };
+
+      const handleLogin = () => {
+        window.location.href = '/login';
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('spotify_token');
+        localStorage.removeItem('hyperfixation_playlist');
+        setIsAuthenticated(false);
+        setPlaylist(null);
+        setMonitor(null);
+      };
+
+      const handleSearch = async () => {
+        if (!searchQuery.trim()) return;
+        
+        setIsSearching(true);
+        try {
+          const results = await spotifyServiceRef.current.searchTracks(searchQuery);
+          setSearchResults(results.tracks.items);
+        } catch (error) {
+          setStatusMessage(`Search error: ${error.message}`);
+        } finally {
+          setIsSearching(false);
+        }
+      };
+
+      const handleAddTrack = (track) => {
+        playlist.addTrack({
+          id: track.id,
+          uri: track.uri,
+          name: track.name,
+          artist: track.artists[0].name,
+          album: track.album.name,
+          image: track.album.images[0]?.url
+        });
+        setPlaylist(new HyperfixationPlaylist(playlist.getTracks()));
+        setSearchQuery('');
+        setSearchResults([]);
+        setStatusMessage(`Added: ${track.name}`);
+        setTimeout(() => setStatusMessage(''), 3000);
+      };
+
+      const handleRemoveTrack = (trackId) => {
+        playlist.removeTrack(trackId);
+        setPlaylist(new HyperfixationPlaylist(playlist.getTracks()));
+        setStatusMessage('Track removed');
+        setTimeout(() => setStatusMessage(''), 3000);
+      };
+
+      const toggleMonitor = () => {
+        if (isMonitorActive) {
+          monitor.stop((status) => {
+            setIsMonitorActive(status.active);
+            setStatusMessage(status.message);
+            setCurrentTrack(null);
+            setQueuedTrack(null);
+            setTimeout(() => setStatusMessage(''), 3000);
+          });
+        } else {
+          if (playlist.isEmpty()) {
+            setStatusMessage('Add songs to your hyperfixation playlist first!');
+            setTimeout(() => setStatusMessage(''), 3000);
+            return;
+          }
+          
+          monitor.start((status) => {
+            setIsMonitorActive(status.active);
+            setStatusMessage(status.message);
+            setCurrentTrack(status.currentTrack || null);
+            setQueuedTrack(status.queuedTrack || null);
+            if (status.message) {
+              setTimeout(() => setStatusMessage(''), 5000);
+            }
+          });
+        }
+      };
+
+      if (!isAuthenticated) {
+        return <LoginView onLogin={handleLogin} />;
+      }
+
+      return <MainView
+        playlist={playlist}
+        isMonitorActive={isMonitorActive}
+        searchQuery={searchQuery}
+        searchResults={searchResults}
+        isSearching={isSearching}
+        statusMessage={statusMessage}
+        currentTrack={currentTrack}
+        queuedTrack={queuedTrack}
+        onSearchChange={setSearchQuery}
+        onSearch={handleSearch}
+        onAddTrack={handleAddTrack}
+        onRemoveTrack={handleRemoveTrack}
+        onToggleMonitor={toggleMonitor}
+        onLogout={handleLogout}
+      />;
+    }
+
+    function LoginView({ onLogin }) {
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: '"Outfit", sans-serif',
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: '24px',
+            padding: '60px 40px',
+            maxWidth: '440px',
+            width: '100%',
+            textAlign: 'center',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            backdropFilter: 'blur(10px)'
+          }}>
+            <div style={{
+              width: '80px',
+              height: '80px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              borderRadius: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 30px',
+              transform: 'rotate(-10deg)',
+              animation: 'pulse 2s ease-in-out infinite'
+            }}>
+              <Zap size={40} color="white" />
+            </div>
+            
+            <h1 style={{
+              fontSize: '36px',
+              fontWeight: '800',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              marginBottom: '12px',
+              letterSpacing: '-0.5px'
+            }}>
+              Hyperfixation Mode
+            </h1>
+            
+            <p style={{
+              color: '#64748b',
+              fontSize: '16px',
+              marginBottom: '40px',
+              lineHeight: '1.6'
+            }}>
+              Never miss your favorite tracks. Automatically inject them into any playlist you're listening to.
+            </p>
+            
+            <button
+              onClick={onLogin}
+              style={{
+                background: '#1DB954',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                padding: '16px 32px',
+                fontSize: '16px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                width: '100%',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 12px rgba(29, 185, 84, 0.3)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 6px 20px rgba(29, 185, 84, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 12px rgba(29, 185, 84, 0.3)';
+              }}
+            >
+              Connect with Spotify
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function MainView({
+      playlist,
+      isMonitorActive,
+      searchQuery,
+      searchResults,
+      isSearching,
+      statusMessage,
+      currentTrack,
+      queuedTrack,
+      onSearchChange,
+      onSearch,
+      onAddTrack,
+      onRemoveTrack,
+      onToggleMonitor,
+      onLogout
+    }) {
+      const tracks = playlist?.getTracks() || [];
+
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: '#0f0f0f',
+          fontFamily: '"Outfit", sans-serif',
+          color: 'white'
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            padding: '24px 32px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <Zap size={28} />
+              </div>
+              <div>
+                <h1 style={{
+                  fontSize: '24px',
+                  fontWeight: '800',
+                  margin: 0,
+                  letterSpacing: '-0.5px'
+                }}>
+                  Hyperfixation Mode
+                </h1>
+                <p style={{ fontSize: '14px', opacity: 0.9, margin: 0 }}>
+                  {tracks.length} track{tracks.length !== 1 ? 's' : ''} in rotation
+                </p>
+              </div>
+            </div>
+            
+            <button
+              onClick={onLogout}
+              style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+            >
+              Logout
+            </button>
+          </div>
+
+          <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px' }}>
+            {statusMessage && (
+              <div style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                padding: '16px 24px',
+                borderRadius: '12px',
+                marginBottom: '24px',
+                fontSize: '15px',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                animation: 'slideIn 0.3s ease'
+              }}>
+                {statusMessage}
+              </div>
+            )}
+
+            <div style={{
+              background: '#1a1a1a',
+              borderRadius: '16px',
+              padding: '32px',
+              marginBottom: '32px',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '24px'
+              }}>
+                <div>
+                  <h2 style={{
+                    fontSize: '20px',
+                    fontWeight: '700',
+                    margin: '0 0 8px 0'
+                  }}>
+                    Hyperfixation Control
+                  </h2>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>
+                    {isMonitorActive
+                      ? 'Actively monitoring and injecting tracks'
+                      : 'Start monitoring to enable hyperfixation mode'}
+                  </p>
+                </div>
+                
+                <button
+                  onClick={onToggleMonitor}
+                  disabled={tracks.length === 0}
+                  style={{
+                    background: isMonitorActive
+                      ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '12px',
+                    padding: '16px 32px',
+                    fontSize: '16px',
+                    fontWeight: '700',
+                    cursor: tracks.length === 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    transition: 'all 0.3s ease',
+                    opacity: tracks.length === 0 ? 0.5 : 1,
+                    boxShadow: isMonitorActive
+                      ? '0 4px 12px rgba(239, 68, 68, 0.4)'
+                      : '0 4px 12px rgba(102, 126, 234, 0.4)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (tracks.length > 0) {
+                      e.target.style.transform = 'translateY(-2px)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <Power size={20} />
+                  {isMonitorActive ? 'Deactivate' : 'Activate'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              background: '#1a1a1a',
+              borderRadius: '16px',
+              padding: '32px',
+              marginBottom: '32px',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+            }}>
+              <h2 style={{
+                fontSize: '20px',
+                fontWeight: '700',
+                marginBottom: '20px'
+              }}>
+                Add Tracks
+              </h2>
+              
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && onSearch()}
+                  placeholder="Search for a song..."
+                  style={{
+                    flex: 1,
+                    background: '#252525',
+                    border: '2px solid #2a2a2a',
+                    borderRadius: '12px',
+                    padding: '14px 20px',
+                    color: 'white',
+                    fontSize: '15px',
+                    outline: 'none',
+                    transition: 'all 0.3s ease'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                  onBlur={(e) => e.target.style.borderColor = '#2a2a2a'}
+                />
+                <button
+                  onClick={onSearch}
+                  disabled={isSearching || !searchQuery.trim()}
+                  style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '12px',
+                    padding: '14px 28px',
+                    fontSize: '15px',
+                    fontWeight: '600',
+                    cursor: isSearching || !searchQuery.trim() ? 'not-allowed' : 'pointer',
+                    opacity: isSearching || !searchQuery.trim() ? 0.5 : 1,
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  {isSearching ? 'Searching...' : 'Search'}
+                </button>
+              </div>
+
+              {searchResults.length > 0 && (
+                <div style={{
+                  maxHeight: '400px',
+                  overflowY: 'auto',
+                  border: '1px solid #2a2a2a',
+                  borderRadius: '12px',
+                  background: '#252525'
+                }}>
+                  {searchResults.map((track) => (
+                    <div
+                      key={track.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '12px 16px',
+                        borderBottom: '1px solid #2a2a2a',
+                        transition: 'all 0.2s ease',
+                        cursor: 'pointer'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#2a2a2a'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      {track.album.images[0] && (
+                        <img
+                          src={track.album.images[0].url}
+                          alt={track.name}
+                          style={{
+                            width: '48px',
+                            height: '48px',
+                            borderRadius: '8px',
+                            marginRight: '16px',
+                            objectFit: 'cover'
+                          }}
+                        />
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontWeight: '600',
+                          fontSize: '15px',
+                          marginBottom: '4px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {track.name}
+                        </div>
+                        <div style={{
+                          color: '#94a3b8',
+                          fontSize: '13px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {track.artists[0].name} • {track.album.name}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onAddTrack(track)}
+                        style={{
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '8px 16px',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.3s ease'
+                        }}
+                      >
+                        <Plus size={16} />
+                        Add
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              background: '#1a1a1a',
+              borderRadius: '16px',
+              padding: '32px',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+            }}>
+              <h2 style={{
+                fontSize: '20px',
+                fontWeight: '700',
+                marginBottom: '20px'
+              }}>
+                Your Hyperfixation Playlist
+              </h2>
+
+              {tracks.length === 0 ? (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '60px 20px',
+                  color: '#94a3b8'
+                }}>
+                  <Music size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
+                  <p style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
+                    No tracks yet
+                  </p>
+                  <p style={{ fontSize: '14px' }}>
+                    Search and add songs to start hyperfixating
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {tracks.map((track, index) => (
+                    <div
+                      key={track.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '16px',
+                        background: '#252525',
+                        borderRadius: '12px',
+                        border: '2px solid transparent',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'transparent'}
+                    >
+                      <div style={{
+                        width: '32px',
+                        color: '#94a3b8',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                      }}>
+                        {index + 1}
+                      </div>
+                      {track.image && (
+                        <img
+                          src={track.image}
+                          alt={track.name}
+                          style={{
+                            width: '56px',
+                            height: '56px',
+                            borderRadius: '8px',
+                            marginRight: '16px',
+                            objectFit: 'cover'
+                          }}
+                        />
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          marginBottom: '4px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {track.name}
+                        </div>
+                        <div style={{
+                          color: '#94a3b8',
+                          fontSize: '14px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {track.artist} • {track.album}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onRemoveTrack(track.id)}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          color: '#ef4444',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          borderRadius: '8px',
+                          padding: '8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          transition: 'all 0.3s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = 'rgba(239, 68, 68, 0.2)';
+                          e.target.style.borderColor = '#ef4444';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'rgba(239, 68, 68, 0.1)';
+                          e.target.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        }}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(
+      <SpotifyHyperfixationApp />,
+      document.getElementById('root')
+    );
+  </script>
+</body>
+</html>
