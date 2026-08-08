@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="true">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Hyperfixation">
+  <meta name="theme-color" content="#667eea">
+  <meta name="description" content="Automatically inject your favorite songs into any Spotify playlist">
   <title>Spotify Hyperfixation Mode</title>
   <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDE4MCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIiByeD0iNDUiIGZpbGw9InVybCgjcGFpbnQwX2xpbmVhcl8wXzEpIi8+CjxjaXJjbGUgY3g9IjkwIiBjeT0iNTYiIHI9IjEwIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNNzAgNzBDNzAgODAgODAgODggOTAgOTRDMTAwIDg4IDExMCA4MCAxMTAgNzBINzAiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik01NCA5MEM1NCAxMDMgNjQgMTE2IDkwIDEyNkMxMTYgMTE2IDEyNiAxMDMgMTI2IDkwSDU0IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8ZGVmcz4KPGxpbmVhckdyYWRpZW50IGlkPSJwYWludDBfbGluZWFyXzBfMSIgeDE9IjAiIHkxPSIwIiB4Mj0iMTgwIiB5Mj0iMTgwIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzY2N2VlYSIvPgo8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM3NjRiYTIiLz4KPC9saW5lYXJHcmFkaWVudD4KPC9kZWZzPgo8L3N2Zz4="
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -22,10 +28,37 @@
       -moz-osx-font-smoothing: grayscale;
       background: #0f0f0f;
       color: white;
+      padding-top: max(0px, env(safe-area-inset-top));
+      padding-bottom: max(0px, env(safe-area-inset-bottom));
+      padding-left: max(0px, env(safe-area-inset-left));
+      padding-right: max(0px, env(safe-area-inset-right));
+      overflow-x: hidden;
     }
     
     #root {
       min-height: 100vh;
+      width: 100%;
+    }
+
+    input[type="text"], input[type="search"] {
+      -webkit-appearance: none;
+      appearance: none;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    
+    button {
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+      min-height: 44px;
+    }
+
+    @supports (padding: max(0px)) {
+      body {
+        padding-left: max(0px, env(safe-area-inset-left));
+        padding-right: max(0px, env(safe-area-inset-right));
+      }
     }
 
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');
@@ -485,12 +518,14 @@
           alignItems: 'center',
           justifyContent: 'center',
           fontFamily: '"Outfit", sans-serif',
-          padding: '20px'
+          padding: '20px',
+          paddingTop: 'max(20px, env(safe-area-inset-top))',
+          paddingBottom: 'max(20px, env(safe-area-inset-bottom))'
         }}>
           <div style={{
             background: 'rgba(255, 255, 255, 0.95)',
             borderRadius: '24px',
-            padding: '60px 40px',
+            padding: '40px 24px',
             maxWidth: '440px',
             width: '100%',
             textAlign: 'center',
@@ -513,7 +548,7 @@
             </div>
             
             <h1 style={{
-              fontSize: '36px',
+              fontSize: 'clamp(28px, 8vw, 36px)',
               fontWeight: '800',
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               WebkitBackgroundClip: 'text',
@@ -526,7 +561,7 @@
             
             <p style={{
               color: '#64748b',
-              fontSize: '16px',
+              fontSize: 'clamp(14px, 4vw, 16px)',
               marginBottom: '40px',
               lineHeight: '1.6'
             }}>
@@ -540,13 +575,15 @@
                 color: 'white',
                 border: 'none',
                 borderRadius: '12px',
-                padding: '16px 32px',
+                padding: '18px 32px',
                 fontSize: '16px',
                 fontWeight: '700',
                 cursor: 'pointer',
                 width: '100%',
+                minHeight: '50px',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 12px rgba(29, 185, 84, 0.3)'
+                boxShadow: '0 4px 12px rgba(29, 185, 84, 0.3)',
+                WebkitTouchCallout: 'none'
               }}
               onMouseEnter={(e) => {
                 e.target.style.transform = 'translateY(-2px)';
@@ -587,15 +624,17 @@
           minHeight: '100vh',
           background: '#0f0f0f',
           fontFamily: '"Outfit", sans-serif',
-          color: 'white'
+          color: 'white',
+          paddingBottom: 'max(0px, env(safe-area-inset-bottom))'
         }}>
           <div style={{
             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            padding: '24px 32px',
+            padding: 'max(20px, env(safe-area-inset-top)) 20px 24px 20px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+            gap: '16px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{
@@ -646,7 +685,7 @@
             </button>
           </div>
 
-          <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px' }}>
+          <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
             {statusMessage && (
               <div style={{
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -759,7 +798,8 @@
                     color: 'white',
                     fontSize: '15px',
                     outline: 'none',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    minHeight: '48px'
                   }}
                   onFocus={(e) => e.target.style.borderColor = '#667eea'}
                   onBlur={(e) => e.target.style.borderColor = '#2a2a2a'}
@@ -777,7 +817,11 @@
                     fontWeight: '600',
                     cursor: isSearching || !searchQuery.trim() ? 'not-allowed' : 'pointer',
                     opacity: isSearching || !searchQuery.trim() ? 0.5 : 1,
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    minHeight: '48px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   {isSearching ? 'Searching...' : 'Search'}
