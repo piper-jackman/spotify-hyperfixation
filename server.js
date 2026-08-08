@@ -114,7 +114,7 @@ const server = http.createServer(async (req, res) => {
         console.log('✅ Token received:', token.substring(0, 20) + '...');
         
         // Redirect back to app with token
-        const redirectUrl = `/?access_token=${token}&token_type=Bearer`;
+        const redirectUrl = `/#access_token=${token}&token_type=Bearer`;
         console.log('Redirecting to:', redirectUrl);
         res.writeHead(302, {
           'Location': redirectUrl
