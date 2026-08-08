@@ -1,0 +1,10 @@
+{
+  "name": "spotify-hyperfixation",
+  "version": "1.0.0",
+  "description": "Spotify Hyperfixation Mode",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}
